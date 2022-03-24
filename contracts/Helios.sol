@@ -121,7 +121,7 @@ contract Helios is HeliosERC1155, Multicall {
 
         // swapper dictates output LP
         liq = swapper.addLiquidity(id, token0amount, token1amount);
-        console.log("liq cPair", liq);
+        // console.log("liq cPair", liq);
 
         _mint(
             to,
@@ -165,7 +165,7 @@ contract Helios is HeliosERC1155, Multicall {
 
         // swapper dictates output LP
         liq = pair.swapper.addLiquidity(id, token0amount, token1amount);
-        console.log("liq addLiq", liq);
+        // console.log("liq addLiq", liq);
         
         if (liq == 0) revert NoLiquidity();
 
