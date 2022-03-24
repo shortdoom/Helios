@@ -7,6 +7,8 @@ import {SafeTransferLib} from './libraries/SafeTransferLib.sol';
 import {Multicall} from './utils/Multicall.sol';
 import {IPair} from './interfaces/IPair.sol';
 
+import "hardhat/console.sol";
+
 /// @notice Extensible 1155-based exchange for liquidity pairs
 contract Helios is HeliosERC1155, Multicall {
     /// -----------------------------------------------------------------------
@@ -119,6 +121,7 @@ contract Helios is HeliosERC1155, Multicall {
 
         // swapper dictates output LP
         liq = swapper.addLiquidity(id, token0amount, token1amount);
+        console.log("liq cPair", liq);
 
         _mint(
             to,
@@ -162,6 +165,7 @@ contract Helios is HeliosERC1155, Multicall {
 
         // swapper dictates output LP
         liq = pair.swapper.addLiquidity(id, token0amount, token1amount);
+        console.log("liq addLiq", liq);
         
         if (liq == 0) revert NoLiquidity();
 
