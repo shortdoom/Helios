@@ -41,6 +41,8 @@ contract Helios is HeliosERC1155, Multicall {
     /// LP Storage
     /// -----------------------------------------------------------------------
 
+    
+
     /// @dev tracks new LP ids
     uint256 public totalSupply;
     /// @dev tracks LP amount per id
@@ -49,6 +51,14 @@ contract Helios is HeliosERC1155, Multicall {
     mapping(uint256 => Pair) public pairs;
     /// @dev internal mapping to check Helios LP settings
     mapping(address => mapping(address => mapping(IPair => mapping(uint256 => uint256)))) private pairSettings;
+    /// @dev map pool hash to reward vault (should be wrapped nicer)
+    mapping(bytes => mapping(uint256 => address)) public lpRewards;
+    // mapping(bytes => Reward) public lpRewards;
+
+    // struct Reward {
+    //     uint256 id;
+    //     address rewards;
+    // }
 
     struct Pair {
         address token0; // first pair token
@@ -82,6 +92,7 @@ contract Helios is HeliosERC1155, Multicall {
         uint256 tokenBamount,
         IPair swapper,
         uint8 fee,
+        address rewards,
         bytes calldata data
     ) public payable returns (uint256 id, uint256 liq) {
         if (tokenA == tokenB) revert IdenticalTokens();
@@ -93,6 +104,7 @@ contract Helios is HeliosERC1155, Multicall {
                 (tokenB, uint112(tokenBamount), tokenA, uint112(tokenAamount));
 
         if (pairSettings[token0][token1][swapper][fee] != 0) revert PairExists();
+        if (pairSettings[token1][token0][swapper][fee] != 0) revert PairExists();
 
         // if null included or value, assume ETH pairing
         if (token0 == address(0) || msg.value != 0) {
@@ -273,4 +285,12 @@ contract Helios is HeliosERC1155, Multicall {
 
         emit Swapped(to, id, tokenIn, amountIn, amountOut);
     }
+
+//     mapping(bytes => mapping(uint256 => address)) public lpRewards;
+
+    function enableRewards(uint256 id) external {
+        
+    }
+
+    function setRewards() external {}
 }

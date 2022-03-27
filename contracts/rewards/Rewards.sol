@@ -3,5 +3,11 @@
 pragma solidity >=0.8.4;
 
 import "hardhat/console.sol";
+import "./ERC4626.sol";
 
-contract Rewards {}
+abstract contract Rewards is ERC4626 {
+    constructor(string memory name, string memory symbol) {
+        
+    }
+
+}

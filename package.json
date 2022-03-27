@@ -8,6 +8,7 @@
   "private": false,
   "dependencies": {
     "@openzeppelin/contracts": "^4.2.0",
+    "@rari-capital/solmate": "github:Rari-Capital/solmate",
     "hardhat": "^2.5.0",
     "hardhat-gas-reporter": "^1.0.4"
   },
