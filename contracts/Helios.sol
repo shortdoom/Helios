@@ -6,6 +6,8 @@ import {SafeTransferLib} from './libraries/SafeTransferLib.sol';
 import {Multicall} from './utils/Multicall.sol';
 import {IPair} from './interfaces/IPair.sol';
 
+import "hardhat/console.sol";
+
 /// @notice Extensible 1155-based exchange for liquidity pairs
 contract Helios is HeliosERC1155, Multicall {
     /// -----------------------------------------------------------------------
@@ -38,6 +40,8 @@ contract Helios is HeliosERC1155, Multicall {
     /// LP Storage
     /// -----------------------------------------------------------------------
 
+    
+
     /// @dev tracks new LP ids
     uint256 public totalSupply;
     /// @dev tracks LP amount per id
@@ -46,6 +50,14 @@ contract Helios is HeliosERC1155, Multicall {
     mapping(uint256 => Pair) public pairs;
     /// @dev internal mapping to check Helios LP settings
     mapping(address => mapping(address => mapping(IPair => mapping(uint256 => uint256)))) private pairSettings;
+    /// @dev map pool hash to reward vault (should be wrapped nicer)
+    mapping(bytes => mapping(uint256 => address)) public lpRewards;
+    // mapping(bytes => Reward) public lpRewards;
+
+    // struct Reward {
+    //     uint256 id;
+    //     address rewards;
+    // }
 
     struct Pair {
         address token0; // first pair token
@@ -79,6 +91,7 @@ contract Helios is HeliosERC1155, Multicall {
         uint256 tokenBamount,
         IPair swapper,
         uint8 fee,
+        address rewards,
         bytes calldata data
     ) external payable returns (uint256 id, uint256 liq) {
         if (tokenA == tokenB) revert IdenticalTokens();
@@ -90,6 +103,7 @@ contract Helios is HeliosERC1155, Multicall {
                 (tokenB, uint112(tokenBamount), tokenA, uint112(tokenAamount));
 
         if (pairSettings[token0][token1][swapper][fee] != 0) revert PairExists();
+        if (pairSettings[token1][token0][swapper][fee] != 0) revert PairExists();
 
         // if null included or msg.value, assume ETH pairing
         if (token0 == address(0) || msg.value != 0) {
@@ -121,6 +135,7 @@ contract Helios is HeliosERC1155, Multicall {
 
         // swapper dictates output LP
         liq = swapper.addLiquidity(id, token0amount, token1amount);
+        // console.log("liq cPair", liq);
 
         _mint(
             to,
@@ -164,6 +179,7 @@ contract Helios is HeliosERC1155, Multicall {
 
         // swapper dictates output LP
         liq = pair.swapper.addLiquidity(id, token0amount, token1amount);
+        // console.log("liq addLiq", liq);
         
         if (liq == 0) revert NoLiquidity();
         
@@ -274,4 +290,12 @@ contract Helios is HeliosERC1155, Multicall {
 
         emit Swapped(to, id, tokenIn, amountIn, amountOut);
     }
+
+//     mapping(bytes => mapping(uint256 => address)) public lpRewards;
+
+    function enableRewards(uint256 id) external {
+        
+    }
+
+    function setRewards() external {}
 }
