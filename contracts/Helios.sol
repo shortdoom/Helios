@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity >=0.8.4;
 
-import {HeliosERC1155} from './HeliosERC1155.sol';
-import {SafeTransferLib} from './libraries/SafeTransferLib.sol';
-import {Multicall} from './utils/Multicall.sol';
-import {IPair} from './interfaces/IPair.sol';
+import {HeliosERC1155} from "./HeliosERC1155.sol";
+import {SafeTransferLib} from "./libraries/SafeTransferLib.sol";
+import {Multicall} from "./utils/Multicall.sol";
+import {IPair} from "./interfaces/IPair.sol";
+import {IRewards} from "./interfaces/IRewards.sol";
+import {ERC20} from "@rari-capital/solmate/src/tokens/ERC20.sol";
 
 import "hardhat/console.sol";
 
@@ -20,10 +22,31 @@ contract Helios is HeliosERC1155, Multicall {
     /// Events
     /// -----------------------------------------------------------------------
 
-    event PairCreated(address indexed to, uint256 id, address indexed token0, address indexed token1);
-    event LiquidityAdded(address indexed to, uint256 id, uint256 token0amount, uint256 token1amount);
-    event LiquidityRemoved(address indexed from, uint256 id, uint256 amount0out, uint256 amount1out);
-    event Swapped(address indexed to, uint256 id, address indexed tokenIn, uint256 amountIn, uint256 amountOut);
+    event PairCreated(
+        address indexed to,
+        uint256 id,
+        address indexed token0,
+        address indexed token1
+    );
+    event LiquidityAdded(
+        address indexed to,
+        uint256 id,
+        uint256 token0amount,
+        uint256 token1amount
+    );
+    event LiquidityRemoved(
+        address indexed from,
+        uint256 id,
+        uint256 amount0out,
+        uint256 amount1out
+    );
+    event Swapped(
+        address indexed to,
+        uint256 id,
+        address indexed tokenIn,
+        uint256 amountIn,
+        uint256 amountOut
+    );
 
     /// -----------------------------------------------------------------------
     /// Errors
@@ -40,8 +63,6 @@ contract Helios is HeliosERC1155, Multicall {
     /// LP Storage
     /// -----------------------------------------------------------------------
 
-    
-
     /// @dev tracks new LP ids
     uint256 public totalSupply;
     /// @dev tracks LP amount per id
@@ -49,15 +70,20 @@ contract Helios is HeliosERC1155, Multicall {
     /// @dev maps Helios LP to settings
     mapping(uint256 => Pair) public pairs;
     /// @dev internal mapping to check Helios LP settings
-    mapping(address => mapping(address => mapping(IPair => mapping(uint256 => uint256)))) private pairSettings;
-    /// @dev map pool hash to reward vault (should be wrapped nicer)
-    mapping(bytes => mapping(uint256 => address)) public lpRewards;
-    // mapping(bytes => Reward) public lpRewards;
+    mapping(address => mapping(address => mapping(IPair => mapping(uint256 => uint256))))
+        private pairSettings;
 
-    // struct Reward {
-    //     uint256 id;
-    //     address rewards;
-    // }
+    /// @notice map rewardId to poolId
+    mapping(uint256 => uint256) public rewardVaults;
+
+    uint256 public totalSupplyRewards;
+
+    mapping(ERC20 => Vault) public vaults;
+
+    struct Vault {
+        uint256 id;
+        uint256 totalSupply;
+    }
 
     struct Pair {
         address token0; // first pair token
@@ -98,12 +124,24 @@ contract Helios is HeliosERC1155, Multicall {
         if (address(swapper).code.length == 0) revert NoSwapper();
 
         // sort tokens and amounts
-        (address token0, uint112 token0amount, address token1, uint112 token1amount) = 
-            tokenA < tokenB ? (tokenA, uint112(tokenAamount), tokenB, uint112(tokenBamount)) : 
-                (tokenB, uint112(tokenBamount), tokenA, uint112(tokenAamount));
+        (
+            address token0,
+            uint112 token0amount,
+            address token1,
+            uint112 token1amount
+        ) = tokenA < tokenB
+                ? (tokenA, uint112(tokenAamount), tokenB, uint112(tokenBamount))
+                : (
+                    tokenB,
+                    uint112(tokenBamount),
+                    tokenA,
+                    uint112(tokenAamount)
+                );
 
-        if (pairSettings[token0][token1][swapper][fee] != 0) revert PairExists();
-        if (pairSettings[token1][token0][swapper][fee] != 0) revert PairExists();
+        if (pairSettings[token0][token1][swapper][fee] != 0)
+            revert PairExists();
+        if (pairSettings[token1][token0][swapper][fee] != 0)
+            revert PairExists();
 
         // if null included or msg.value, assume ETH pairing
         if (token0 == address(0) || msg.value != 0) {
@@ -121,7 +159,7 @@ contract Helios is HeliosERC1155, Multicall {
         unchecked {
             id = ++totalSupply;
         }
-        
+
         pairSettings[token0][token1][swapper][fee] = id;
 
         pairs[id] = Pair({
@@ -135,14 +173,8 @@ contract Helios is HeliosERC1155, Multicall {
 
         // swapper dictates output LP
         liq = swapper.addLiquidity(id, token0amount, token1amount);
-        // console.log("liq cPair", liq);
 
-        _mint(
-            to,
-            id,
-            liq,
-            data
-        );
+        _mint(to, id, liq, data);
 
         totalSupplyForId[id] = liq;
 
@@ -159,7 +191,7 @@ contract Helios is HeliosERC1155, Multicall {
     /// @return liq The liquidity output from swapper
     function addLiquidity(
         address to,
-        uint256 id, 
+        uint256 id,
         uint256 token0amount,
         uint256 token1amount,
         bytes calldata data
@@ -171,24 +203,31 @@ contract Helios is HeliosERC1155, Multicall {
         // if base is address(0), assume ETH and overwrite amount
         if (pair.token0 == address(0)) {
             token0amount = msg.value;
-            pair.token1._safeTransferFrom(msg.sender, address(this), token1amount);
-        } else { 
-            pair.token0._safeTransferFrom(msg.sender, address(this), token0amount);
-            pair.token1._safeTransferFrom(msg.sender, address(this), token1amount);
+            pair.token1._safeTransferFrom(
+                msg.sender,
+                address(this),
+                token1amount
+            );
+        } else {
+            pair.token0._safeTransferFrom(
+                msg.sender,
+                address(this),
+                token0amount
+            );
+            pair.token1._safeTransferFrom(
+                msg.sender,
+                address(this),
+                token1amount
+            );
         }
 
         // swapper dictates output LP
         liq = pair.swapper.addLiquidity(id, token0amount, token1amount);
         // console.log("liq addLiq", liq);
-        
+
         if (liq == 0) revert NoLiquidity();
-        
-        _mint(
-            to,
-            id,
-            liq,
-            data
-        );
+
+        _mint(to, id, liq, data);
 
         pair.reserve0 += uint112(token0amount);
         pair.reserve1 += uint112(token1amount);
@@ -205,17 +244,17 @@ contract Helios is HeliosERC1155, Multicall {
     /// @return amount0out The value output for token0
     /// @return amount1out The value output for token1
     function removeLiquidity(
-        address to, 
-        uint256 id, 
+        address to,
+        uint256 id,
         uint256 liq
     ) external payable returns (uint256 amount0out, uint256 amount1out) {
         if (id > totalSupply) revert NoPair();
 
         Pair storage pair = pairs[id];
-        
+
         // swapper dictates output amounts
         (amount0out, amount1out) = pair.swapper.removeLiquidity(id, liq);
-        
+
         if (pair.token0 == address(0)) {
             to._safeTransferETH(amount0out);
         } else {
@@ -223,16 +262,12 @@ contract Helios is HeliosERC1155, Multicall {
         }
 
         pair.token1._safeTransfer(to, amount1out);
-        
-        _burn(
-            msg.sender,
-            id,
-            liq
-        );
+
+        _burn(msg.sender, id, liq);
 
         pair.reserve0 -= uint112(amount0out);
         pair.reserve1 -= uint112(amount1out);
-        
+
         // underflow is checked in HeliosERC1155 by balanceOf decrement
         unchecked {
             totalSupplyForId[id] -= liq;
@@ -252,17 +287,18 @@ contract Helios is HeliosERC1155, Multicall {
     /// @param amountIn The amount of asset to swap
     /// @return amountOut The Helios output from swap
     function swap(
-        address to, 
-        uint256 id, 
-        address tokenIn, 
+        address to,
+        uint256 id,
+        address tokenIn,
         uint256 amountIn
     ) external payable returns (uint256 amountOut) {
         if (id > totalSupply) revert NoPair();
 
         Pair storage pair = pairs[id];
 
-        if (tokenIn != pair.token0 && tokenIn != pair.token1) revert NotPairToken();
-        
+        if (tokenIn != pair.token0 && tokenIn != pair.token1)
+            revert NotPairToken();
+
         if (tokenIn == address(0)) {
             amountIn = msg.value;
         } else {
@@ -291,11 +327,42 @@ contract Helios is HeliosERC1155, Multicall {
         emit Swapped(to, id, tokenIn, amountIn, amountOut);
     }
 
-//     mapping(bytes => mapping(uint256 => address)) public lpRewards;
+    /*///////////////////////////////////////////////////////////////
+                             REWARDS LOGIC
+    //////////////////////////////////////////////////////////////*/
 
-    function enableRewards(uint256 id) external {
-        
+    /// @notice Provide address of already deployed rewardVault and existing ERC20 RewardTok
+    function enableRewards(
+        IRewards rewardVault,
+        uint256 poolId,
+        ERC20 rewardToken
+    ) external returns (uint256 rewardId) {
+        rewardId = rewardVault.createVault(rewardToken, poolId);
+        rewardVaults[rewardId] = poolId;
+        return rewardId;
     }
 
-    function setRewards() external {}
+    function enterRewards(
+        IRewards rewardVault,
+        uint256 poolId,
+        ERC20 rewardToken,
+        uint256 amount,
+        address receiver
+    ) external {
+        // then owner of funds is this contract
+        rewardVault.deposit(rewardToken, amount, receiver);
+
+    }
+
+    function exitRewards(
+        IRewards rewardVault,
+        uint256 poolId,
+        ERC20 rewardToken,
+        uint256 amount,
+        address receiver,
+        address owner
+    ) external {
+        rewardVault.withdraw(rewardToken, amount, receiver, owner);
+        address(rewardToken)._safeTransfer(receiver, amount);
+    }
 }
