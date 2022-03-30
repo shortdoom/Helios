@@ -60,7 +60,6 @@ abstract contract Rewards is ERC1155 {
                         DEPOSIT/WITHDRAWAL LOGIC
     //////////////////////////////////////////////////////////////*/
 
-    /// @notice ALLOW ONLY HELIOS TO CREATE! constructor
     /// Only one Vault per reward token, but infinite of Vaults with diff rTokens
     /// This creates a case where one reward token can exist in multiple vaults
     function create(ERC1155 asset, uint256 poolId) public virtual returns (uint256 rewardId) {

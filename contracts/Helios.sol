@@ -76,9 +76,8 @@ contract Helios is HeliosERC1155, Multicall {
     mapping(address => mapping(address => mapping(IPair => mapping(uint256 => uint256))))
         private pairSettings;
 
-    /// @notice map rewardVault to rewardVault id on Helios contract
-    /// ERR! this will be overwritten
-    mapping(IRewards => uint256) internal rewardVaults;
+    /// @notice map rewardVault to Helios pool
+    mapping(uint256 => uint256) public rewardVaults;
 
     struct Pair {
         address token0; // first pair token
@@ -93,15 +92,19 @@ contract Helios is HeliosERC1155, Multicall {
                              REWARDS LOGIC
     //////////////////////////////////////////////////////////////*/
 
+    IRewards rewardVault;
+    constructor(IRewards _rewardVault) {
+        rewardVault = _rewardVault;
+    }
+
     /// @notice Provide address of existing pool and rewards vault for this pool
     function enableRewards(
         uint256 poolId,
-        ERC1155 heliosToken,
-        IRewards rewardVault // this should b
+        ERC1155 heliosToken
     ) external returns (uint256 rewardId) {
         if (poolId > totalSupply) revert NoPair();
-        rewardId = IRewards(rewardVault).createVault(heliosToken, poolId);
-        rewardVaults[rewardVault] = rewardId; // mapping(ERC20=>Vault{})
+        rewardId = rewardVault.createVault(heliosToken, poolId);
+        rewardVaults[rewardId] = poolId;
     }
 
 
