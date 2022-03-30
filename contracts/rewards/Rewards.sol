@@ -11,19 +11,19 @@ import {IHelios} from "../interfaces/IHelios.sol";
 /// @notice Minimal ERC4626-style tokenized Vault implementation with ERC1155 accounting.
 /// @author Modified from Solmate (https://github.com/Rari-Capital/solmate/blob/main/src/mixins/ERC4626.sol)
 abstract contract Rewards is ERC1155 {
-    using SafeTransferLib for ERC20;
+    using SafeTransferLib for ERC1155;
     using FixedPointMathLib for uint256;
 
     /*///////////////////////////////////////////////////////////////
                                  EVENTS
     //////////////////////////////////////////////////////////////*/
 
-    event Create(ERC20 indexed asset, uint256 id);
+    event Create(ERC1155 indexed asset, uint256 id);
 
     event Deposit(
         address indexed caller, 
         address indexed owner, 
-        ERC20 indexed asset, 
+        ERC1155 indexed asset, 
         uint256 assets, 
         uint256 shares
     );
@@ -32,7 +32,7 @@ abstract contract Rewards is ERC1155 {
         address indexed caller,
         address indexed receiver,
         address indexed owner,
-        ERC20 asset,
+        ERC1155 asset,
         uint256 assets,
         uint256 shares
     );
@@ -48,10 +48,11 @@ abstract contract Rewards is ERC1155 {
 
     uint256 public totalSupply;
 
-    mapping(ERC20 => Vault) public vaults;
+    mapping(ERC1155 => Vault) public vaults;
 
     struct Vault {
-        uint256 id;
+        uint256 rewardId;
+        uint256 poolId;
         uint256 totalSupply;
     }
 
@@ -62,30 +63,33 @@ abstract contract Rewards is ERC1155 {
     /// @notice ALLOW ONLY HELIOS TO CREATE! constructor
     /// Only one Vault per reward token, but infinite of Vaults with diff rTokens
     /// This creates a case where one reward token can exist in multiple vaults
-    function create(ERC20 asset) public virtual returns (uint256 id) {
-        require(vaults[asset].id == 0, "CREATED");
-        require(msg.sender == address(helios), "AUTH");
+    function create(ERC1155 asset, uint256 poolId) public virtual returns (uint256 rewardId) {
+        require(vaults[asset].rewardId == 0, "CREATED");
         
         // cannot overflow on human timescales
         unchecked {
-            id = ++totalSupply;
+            rewardId = ++totalSupply;
         }
 
-        vaults[asset].id = id;
+        vaults[asset].poolId = poolId;
+        vaults[asset].rewardId = rewardId;
 
-        emit Create(asset, id);
+        emit Create(asset, rewardId);
     }
 
-    /// @notice IF MULTIPLE POOLS FOR REWARD, ROUTE!
     function deposit(
-        ERC20 asset, 
+        ERC1155 asset,
+        uint256 rewardId,
+        uint256 poolId, 
         uint256 assets, 
         address receiver
     ) public virtual returns (uint256 shares) {
+        // require(vaults[asset].rewardId == rewardId && vaults[asset].poolId == poolId);
         require((shares = previewDeposit(asset, assets)) != 0, "ZERO_SHARES");
-        asset.safeTransferFrom(msg.sender, address(this), assets);
 
-        _mint(receiver, vaults[asset].id, shares, "");
+        asset.safeTransferFrom(msg.sender, address(this), poolId, assets, "");
+
+        // _mint(receiver, vaults[asset].id, shares, "");
 
         vaults[asset].totalSupply += shares;
 
@@ -95,16 +99,17 @@ abstract contract Rewards is ERC1155 {
     }
 
     function mint(
-        ERC20 asset, 
+        ERC1155 asset,
+        uint256 poolId, 
         uint256 shares, 
         address receiver
     ) public virtual returns (uint256 assets) {
         assets = previewMint(asset, shares); // No need to check for rounding error, previewMint rounds up.
 
         // Need to transfer before minting or ERC777s could reenter.
-        asset.safeTransferFrom(msg.sender, address(this), assets);
+        asset.safeTransferFrom(msg.sender, address(this), poolId, shares, "");
 
-        _mint(receiver, vaults[asset].id, shares, "");
+        // _mint(receiver, vaults[asset].id, shares, "");
 
         vaults[asset].totalSupply += shares;
 
@@ -114,7 +119,7 @@ abstract contract Rewards is ERC1155 {
     }
 
     function withdraw(
-        ERC20 asset,
+        ERC1155 asset,
         uint256 assets,
         address receiver,
         address owner
@@ -135,7 +140,7 @@ abstract contract Rewards is ERC1155 {
     }
 
     function redeem(
-        ERC20 asset,
+        ERC1155 asset,
         uint256 shares,
         address receiver,
         address owner
@@ -162,35 +167,35 @@ abstract contract Rewards is ERC1155 {
 
     function totalAssets() public view virtual returns (uint256);
 
-    function convertToShares(ERC20 asset, uint256 assets) public view virtual returns (uint256) {
+    function convertToShares(ERC1155 asset, uint256 assets) public view virtual returns (uint256) {
         uint256 supply = vaults[asset].totalSupply; // Saves an extra SLOAD if totalSupply is non-zero.
 
         return supply == 0 ? assets : assets.mulDivDown(supply, totalAssets());
     }
 
-    function convertToAssets(ERC20 asset, uint256 shares) public view virtual returns (uint256) {
+    function convertToAssets(ERC1155 asset, uint256 shares) public view virtual returns (uint256) {
         uint256 supply = vaults[asset].totalSupply; // Saves an extra SLOAD if totalSupply is non-zero.
 
         return supply == 0 ? shares : shares.mulDivDown(totalAssets(), supply);
     }
 
-    function previewDeposit(ERC20 asset, uint256 assets) public view virtual returns (uint256) {
+    function previewDeposit(ERC1155 asset, uint256 assets) public view virtual returns (uint256) {
         return convertToShares(asset, assets);
     }
 
-    function previewMint(ERC20 asset, uint256 shares) public view virtual returns (uint256) {
+    function previewMint(ERC1155 asset, uint256 shares) public view virtual returns (uint256) {
         uint256 supply = vaults[asset].totalSupply; // Saves an extra SLOAD if totalSupply is non-zero.
 
         return supply == 0 ? shares : shares.mulDivUp(totalAssets(), supply);
     }
 
-    function previewWithdraw(ERC20 asset, uint256 assets) public view virtual returns (uint256) {
+    function previewWithdraw(ERC1155 asset, uint256 assets) public view virtual returns (uint256) {
         uint256 supply = vaults[asset].totalSupply; // Saves an extra SLOAD if totalSupply is non-zero.
 
         return supply == 0 ? assets : assets.mulDivUp(supply, totalAssets());
     }
 
-    function previewRedeem(ERC20 asset, uint256 shares) public view virtual returns (uint256) {
+    function previewRedeem(ERC1155 asset, uint256 shares) public view virtual returns (uint256) {
         return convertToAssets(asset, shares);
     }
 
@@ -206,11 +211,11 @@ abstract contract Rewards is ERC1155 {
         return type(uint256).max;
     }
 
-    function maxWithdraw(ERC20 asset, address owner) public view virtual returns (uint256) {
+    function maxWithdraw(ERC1155 asset, address owner) public view virtual returns (uint256) {
         return convertToAssets(asset, balanceOf[owner][vaults[asset].id]);
     }
 
-    function maxRedeem(ERC20 asset, address owner) public view virtual returns (uint256) {
+    function maxRedeem(ERC1155 asset, address owner) public view virtual returns (uint256) {
         return balanceOf[owner][vaults[asset].id];
     }
 
@@ -218,8 +223,8 @@ abstract contract Rewards is ERC1155 {
                          INTERNAL HOOKS LOGIC
     //////////////////////////////////////////////////////////////*/
 
-    function beforeWithdraw(ERC20 asset, uint256 assets, uint256 shares) internal virtual {}
+    function beforeWithdraw(ERC1155 asset, uint256 assets, uint256 shares) internal virtual {}
 
-    function afterDeposit(ERC20 asset, uint256 assets, uint256 shares) internal virtual {}
+    function afterDeposit(ERC1155 asset, uint256 assets, uint256 shares) internal virtual {}
 }
 

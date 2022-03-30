@@ -7,6 +7,8 @@ import {Multicall} from "./utils/Multicall.sol";
 import {IPair} from "./interfaces/IPair.sol";
 import {IRewards} from "./interfaces/IRewards.sol";
 import {ERC20} from "@rari-capital/solmate/src/tokens/ERC20.sol";
+import {ERC1155} from "@rari-capital/solmate/src/tokens/ERC1155.sol";
+
 
 import "hardhat/console.sol";
 
@@ -58,6 +60,7 @@ contract Helios is HeliosERC1155, Multicall {
     error NoPair();
     error NoLiquidity();
     error NotPairToken();
+    error RewardExists();
 
     /// -----------------------------------------------------------------------
     /// LP Storage
@@ -73,17 +76,9 @@ contract Helios is HeliosERC1155, Multicall {
     mapping(address => mapping(address => mapping(IPair => mapping(uint256 => uint256))))
         private pairSettings;
 
-    /// @notice map rewardId to poolId
-    mapping(uint256 => uint256) public rewardVaults;
-
-    uint256 public totalSupplyRewards;
-
-    mapping(ERC20 => Vault) public vaults;
-
-    struct Vault {
-        uint256 id;
-        uint256 totalSupply;
-    }
+    /// @notice map rewardVault to rewardVault id on Helios contract
+    /// ERR! this will be overwritten
+    mapping(IRewards => uint256) internal rewardVaults;
 
     struct Pair {
         address token0; // first pair token
@@ -93,6 +88,22 @@ contract Helios is HeliosERC1155, Multicall {
         uint112 reserve1; // second pair token reserve
         uint8 fee; // fee back to pair liquidity providers
     }
+
+    /*///////////////////////////////////////////////////////////////
+                             REWARDS LOGIC
+    //////////////////////////////////////////////////////////////*/
+
+    /// @notice Provide address of existing pool and rewards vault for this pool
+    function enableRewards(
+        uint256 poolId,
+        ERC1155 heliosToken,
+        IRewards rewardVault // this should b
+    ) external returns (uint256 rewardId) {
+        if (poolId > totalSupply) revert NoPair();
+        rewardId = IRewards(rewardVault).createVault(heliosToken, poolId);
+        rewardVaults[rewardVault] = rewardId; // mapping(ERC20=>Vault{})
+    }
+
 
     /// -----------------------------------------------------------------------
     /// LP Logic
@@ -117,7 +128,6 @@ contract Helios is HeliosERC1155, Multicall {
         uint256 tokenBamount,
         IPair swapper,
         uint8 fee,
-        address rewards,
         bytes calldata data
     ) external payable returns (uint256 id, uint256 liq) {
         if (tokenA == tokenB) revert IdenticalTokens();
@@ -327,42 +337,4 @@ contract Helios is HeliosERC1155, Multicall {
         emit Swapped(to, id, tokenIn, amountIn, amountOut);
     }
 
-    /*///////////////////////////////////////////////////////////////
-                             REWARDS LOGIC
-    //////////////////////////////////////////////////////////////*/
-
-    /// @notice Provide address of already deployed rewardVault and existing ERC20 RewardTok
-    function enableRewards(
-        IRewards rewardVault,
-        uint256 poolId,
-        ERC20 rewardToken
-    ) external returns (uint256 rewardId) {
-        rewardId = rewardVault.createVault(rewardToken, poolId);
-        rewardVaults[rewardId] = poolId;
-        return rewardId;
-    }
-
-    function enterRewards(
-        IRewards rewardVault,
-        uint256 poolId,
-        ERC20 rewardToken,
-        uint256 amount,
-        address receiver
-    ) external {
-        // then owner of funds is this contract
-        rewardVault.deposit(rewardToken, amount, receiver);
-
-    }
-
-    function exitRewards(
-        IRewards rewardVault,
-        uint256 poolId,
-        ERC20 rewardToken,
-        uint256 amount,
-        address receiver,
-        address owner
-    ) external {
-        rewardVault.withdraw(rewardToken, amount, receiver, owner);
-        address(rewardToken)._safeTransfer(receiver, amount);
-    }
 }
