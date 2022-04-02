@@ -5,15 +5,14 @@ import {HeliosERC1155} from "./HeliosERC1155.sol";
 import {SafeTransferLib} from "./libraries/SafeTransferLib.sol";
 import {Multicall} from "./utils/Multicall.sol";
 import {IPair} from "./interfaces/IPair.sol";
-import {IRewards} from "./interfaces/IRewards.sol";
+// import {IRewards} from "./interfaces/IRewards.sol";
 import {ERC20} from "@rari-capital/solmate/src/tokens/ERC20.sol";
-import {ERC1155} from "@rari-capital/solmate/src/tokens/ERC1155.sol";
-
+import {Rewards} from "./rewards/Rewards.sol";
 
 import "hardhat/console.sol";
 
 /// @notice Extensible 1155-based exchange for liquidity pairs
-contract Helios is HeliosERC1155, Multicall {
+contract Helios is Rewards, Multicall {
     /// -----------------------------------------------------------------------
     /// Library usage
     /// -----------------------------------------------------------------------
@@ -77,7 +76,7 @@ contract Helios is HeliosERC1155, Multicall {
         private pairSettings;
 
     /// @notice map rewardVault to Helios pool
-    mapping(uint256 => uint256) public rewardVaults;
+    // mapping(uint256 => uint256) public rewardVaults;
 
     struct Pair {
         address token0; // first pair token
@@ -92,19 +91,34 @@ contract Helios is HeliosERC1155, Multicall {
                              REWARDS LOGIC
     //////////////////////////////////////////////////////////////*/
 
-    IRewards rewardVault;
-    constructor(IRewards _rewardVault) {
-        rewardVault = _rewardVault;
-    }
-
-    /// @notice Provide address of existing pool and rewards vault for this pool
+    /// @notice Provide address of existing pool and lpToken
     function enableRewards(
+        HeliosERC1155 heliosToken,
         uint256 poolId,
-        ERC1155 heliosToken
+        ERC20 rewardToken
     ) external returns (uint256 rewardId) {
         if (poolId > totalSupply) revert NoPair();
-        rewardId = rewardVault.createVault(heliosToken, poolId);
-        rewardVaults[rewardId] = poolId;
+        rewardId = Rewards.create(heliosToken, poolId, rewardToken); // drop contract?
+    }
+
+    function enterRewards(
+        HeliosERC1155 heliosToken,
+        uint256 rewardId,
+        uint256 poolId,
+        uint256 amount,
+        address receiver
+    ) external {
+        Rewards.deposit(heliosToken, rewardId, poolId, amount, receiver);
+    }
+
+    function leaveRewards(
+        HeliosERC1155 heliosToken,
+        uint256 rewardId,
+        uint256 amount,
+        address receiver,
+        address owner
+    ) external {
+        Rewards.withdraw(heliosToken, rewardId, amount, receiver);
     }
 
 
@@ -236,7 +250,6 @@ contract Helios is HeliosERC1155, Multicall {
 
         // swapper dictates output LP
         liq = pair.swapper.addLiquidity(id, token0amount, token1amount);
-        // console.log("liq addLiq", liq);
 
         if (liq == 0) revert NoLiquidity();
 

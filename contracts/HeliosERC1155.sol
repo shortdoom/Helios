@@ -83,8 +83,7 @@ abstract contract HeliosERC1155 {
     /// -----------------------------------------------------------------------
     /// Constructor
     /// -----------------------------------------------------------------------
-    
-    constructor() {
+        constructor() {
         INITIAL_CHAIN_ID = block.chainid;
         INITIAL_DOMAIN_SEPARATOR = _computeDomainSeparator();
     }
@@ -284,4 +283,5 @@ abstract contract HeliosERC1155 {
         balanceOf[from][id] -= amount;
         emit TransferSingle(msg.sender, from, address(0), id, amount);
     }
+
 }

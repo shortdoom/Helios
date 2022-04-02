@@ -2,29 +2,29 @@
 pragma solidity >=0.8.0;
 
 import {ERC20} from "@rari-capital/solmate/src/tokens/ERC20.sol";
-import {ERC1155} from "@rari-capital/solmate/src/tokens/ERC1155.sol";
 import {SafeTransferLib} from "@rari-capital/solmate/src/utils/SafeTransferLib.sol";
 import {FixedPointMathLib} from "@rari-capital/solmate/src/utils/FixedPointMathLib.sol";
 
+import {HeliosERC1155} from "../HeliosERC1155.sol";
 import {IHelios} from "../interfaces/IHelios.sol";
 
-/// @notice Minimal ERC4626-style tokenized Vault implementation with ERC1155 accounting.
+/// @notice Minimal ERC4626-style tokenized Vault implementation with HeliosERC1155 accounting.
 /// @author Modified from Solmate (https://github.com/Rari-Capital/solmate/blob/main/src/mixins/ERC4626.sol)
-abstract contract Rewards is ERC1155 {
-    using SafeTransferLib for ERC1155;
+contract Rewards is HeliosERC1155 {
+    using SafeTransferLib for HeliosERC1155;
     using FixedPointMathLib for uint256;
 
     /*///////////////////////////////////////////////////////////////
                                  EVENTS
     //////////////////////////////////////////////////////////////*/
 
-    event Create(ERC1155 indexed asset, uint256 id);
+    event Create(HeliosERC1155 indexed asset, uint256 id);
 
     event Deposit(
-        address indexed caller, 
-        address indexed owner, 
-        ERC1155 indexed asset, 
-        uint256 assets, 
+        address indexed caller,
+        address indexed owner,
+        HeliosERC1155 indexed asset,
+        uint256 assets,
         uint256 shares
     );
 
@@ -32,65 +32,65 @@ abstract contract Rewards is ERC1155 {
         address indexed caller,
         address indexed receiver,
         address indexed owner,
-        ERC1155 asset,
+        HeliosERC1155 asset,
         uint256 assets,
         uint256 shares
     );
-
-    IHelios helios;
-    constructor(IHelios _helios) {
-        helios = _helios;
-    }
 
     /*///////////////////////////////////////////////////////////////
                                  STORAGE
     //////////////////////////////////////////////////////////////*/
 
-    uint256 public totalSupply;
+    uint256 public totalSupplyRewards;
 
-    mapping(ERC1155 => Vault) public vaults;
+    /// owner => rewardId => balance
+    mapping(address => mapping(uint256 => uint256)) public balanceLocked;
+
+    /// Base Helios1155 LP-token => rewardId => Vault
+    mapping(HeliosERC1155 => mapping(uint256 => Vault)) public vaults; //, where uint == rewardId
 
     struct Vault {
-        uint256 rewardId;
         uint256 poolId;
         uint256 totalSupply;
+        ERC20 rewardToken; // ERC20 rewardToken?
     }
 
     /*///////////////////////////////////////////////////////////////
                         DEPOSIT/WITHDRAWAL LOGIC
     //////////////////////////////////////////////////////////////*/
 
-    /// Only one Vault per reward token, but infinite of Vaults with diff rTokens
-    /// This creates a case where one reward token can exist in multiple vaults
-    function create(ERC1155 asset, uint256 poolId) public virtual returns (uint256 rewardId) {
-        require(vaults[asset].rewardId == 0, "CREATED");
-        
-        // cannot overflow on human timescales
+    /// Only one Vault per reward token, but infinite Vaults with diff rTokens
+    /// One reward token can exist in multiple vaults
+    /// asset = underlying of vaults[asset][rewardId]
+    function create(HeliosERC1155 asset, uint256 poolId, ERC20 rewardToken)
+        external
+        returns (uint256 rewardId)
+    {
+        require(vaults[asset][rewardId].poolId != poolId, "EXISTS");
+
         unchecked {
-            rewardId = ++totalSupply;
+            rewardId = ++totalSupplyRewards;
         }
 
-        vaults[asset].poolId = poolId;
-        vaults[asset].rewardId = rewardId;
+        vaults[asset][rewardId].poolId = poolId;
+        vaults[asset][rewardId].rewardToken = rewardToken;
 
         emit Create(asset, rewardId);
     }
 
     function deposit(
-        ERC1155 asset,
+        HeliosERC1155 asset,
         uint256 rewardId,
-        uint256 poolId, 
-        uint256 assets, 
+        uint256 poolId,
+        uint256 assets,
         address receiver
-    ) public virtual returns (uint256 shares) {
-        // require(vaults[asset].rewardId == rewardId && vaults[asset].poolId == poolId);
-        require((shares = previewDeposit(asset, assets)) != 0, "ZERO_SHARES");
+    ) external returns (uint256 shares) {
+        require((shares = previewDeposit(asset, rewardId, assets)) != 0, "ZERO_SHARES");
 
+        /// @notice can this be done differently?
         asset.safeTransferFrom(msg.sender, address(this), poolId, assets, "");
-
-        // _mint(receiver, vaults[asset].id, shares, "");
-
-        vaults[asset].totalSupply += shares;
+        balanceLocked[msg.sender][rewardId] += assets;
+        vaults[asset][rewardId].totalSupply += shares;
 
         emit Deposit(msg.sender, receiver, asset, assets, shares);
 
@@ -98,19 +98,17 @@ abstract contract Rewards is ERC1155 {
     }
 
     function mint(
-        ERC1155 asset,
-        uint256 poolId, 
-        uint256 shares, 
+        HeliosERC1155 asset,
+        uint256 rewardId,
+        uint256 poolId,
+        uint256 shares,
         address receiver
-    ) public virtual returns (uint256 assets) {
-        assets = previewMint(asset, shares); // No need to check for rounding error, previewMint rounds up.
+    ) public returns (uint256 assets) {
+        assets = previewMint(asset, rewardId, shares); // No need to check for rounding error, previewMint rounds up.
 
-        // Need to transfer before minting or ERC777s could reenter.
-        asset.safeTransferFrom(msg.sender, address(this), poolId, shares, "");
-
-        // _mint(receiver, vaults[asset].id, shares, "");
-
-        vaults[asset].totalSupply += shares;
+        asset.safeTransferFrom(msg.sender, address(this), poolId, assets, "");
+        balanceLocked[msg.sender][rewardId] += assets;
+        vaults[asset][rewardId].totalSupply += assets;
 
         emit Deposit(msg.sender, receiver, asset, assets, shares);
 
@@ -118,112 +116,151 @@ abstract contract Rewards is ERC1155 {
     }
 
     function withdraw(
-        ERC1155 asset,
+        HeliosERC1155 asset,
+        uint256 rewardId,
         uint256 assets,
         address receiver,
         address owner
-    ) public virtual returns (uint256 shares) {
-        shares = previewWithdraw(asset, assets); // No need to check for rounding error, previewWithdraw rounds up.
+    ) public returns (uint256 shares) {
+        shares = previewWithdraw(asset, rewardId, assets); // No need to check for rounding error, previewWithdraw rounds up.
+        if (msg.sender != owner)
+            require(isApprovedForAll[owner][msg.sender], "NOT_OPERATOR");
 
-        if (msg.sender != owner) require(isApprovedForAll[owner][msg.sender], "NOT_OPERATOR");
-
-        beforeWithdraw(asset, assets, shares);
-
-        _burn(owner, vaults[asset].id, shares);
-
-        vaults[asset].totalSupply -= shares;
+        balanceLocked[msg.sender][rewardId] -= shares;
+        vaults[asset][rewardId].totalSupply -= shares;
 
         emit Withdraw(msg.sender, receiver, owner, asset, assets, shares);
 
-        asset.safeTransfer(receiver, assets);
+        /// 3rd party token, this should be validated on create()
+        vaults[asset][rewardId].rewardToken.transferFrom(address(this), msg.sender, assets);
     }
 
     function redeem(
-        ERC1155 asset,
+        HeliosERC1155 asset,
+        uint256 rewardId,
         uint256 shares,
         address receiver,
         address owner
-    ) public virtual returns (uint256 assets) {
-        if (msg.sender != owner) require(isApprovedForAll[owner][msg.sender], "NOT_OPERATOR");
+    ) public returns (uint256 assets) {
+        if (msg.sender != owner)
+            require(isApprovedForAll[owner][msg.sender], "NOT_OPERATOR");
 
-        // Check for rounding error since we round down in previewRedeem.
-        require((assets = previewRedeem(asset, shares)) != 0, "ZERO_ASSETS");
+        require((assets = previewRedeem(asset, rewardId, shares)) != 0, "ZERO_ASSETS");
 
-        beforeWithdraw(asset, assets, shares);
-
-        _burn(owner, vaults[asset].id, shares);
-
-        vaults[asset].totalSupply -= shares;
+        balanceLocked[msg.sender][rewardId] -= shares;
+        vaults[asset][rewardId].totalSupply -= shares;
 
         emit Withdraw(msg.sender, receiver, owner, asset, assets, shares);
 
-        asset.safeTransfer(receiver, assets);
+        /// 3rd party token, this should be validated on create()
+        vaults[asset][rewardId].rewardToken.transferFrom(address(this), msg.sender, assets);
     }
 
     /*///////////////////////////////////////////////////////////////
                            ACCOUNTING LOGIC
     //////////////////////////////////////////////////////////////*/
 
-    function totalAssets() public view virtual returns (uint256);
+    function totalAssets() public view returns (uint256) {
+        return 0;
+    }
 
-    function convertToShares(ERC1155 asset, uint256 assets) public view virtual returns (uint256) {
-        uint256 supply = vaults[asset].totalSupply; // Saves an extra SLOAD if totalSupply is non-zero.
+    function convertToShares(HeliosERC1155 asset, uint256 rewardId, uint256 assets)
+        public
+        view
+        returns (uint256)
+    {
+        uint256 supply = vaults[asset][rewardId].totalSupply; // Saves an extra SLOAD if totalSupply is non-zero.
 
         return supply == 0 ? assets : assets.mulDivDown(supply, totalAssets());
     }
 
-    function convertToAssets(ERC1155 asset, uint256 shares) public view virtual returns (uint256) {
-        uint256 supply = vaults[asset].totalSupply; // Saves an extra SLOAD if totalSupply is non-zero.
+    function convertToAssets(HeliosERC1155 asset, uint256 rewardId, uint256 shares)
+        public
+        view
+        returns (uint256)
+    {
+        uint256 supply = vaults[asset][rewardId].totalSupply; // Saves an extra SLOAD if totalSupply is non-zero.
 
         return supply == 0 ? shares : shares.mulDivDown(totalAssets(), supply);
     }
 
-    function previewDeposit(ERC1155 asset, uint256 assets) public view virtual returns (uint256) {
-        return convertToShares(asset, assets);
+    function previewDeposit(HeliosERC1155 asset, uint256 rewardId,  uint256 assets)
+        public
+        view
+        returns (uint256)
+    {
+        return convertToShares(asset, rewardId, assets);
     }
 
-    function previewMint(ERC1155 asset, uint256 shares) public view virtual returns (uint256) {
-        uint256 supply = vaults[asset].totalSupply; // Saves an extra SLOAD if totalSupply is non-zero.
+    function previewMint(HeliosERC1155 asset, uint256 rewardId, uint256 shares)
+        public
+        view
+        returns (uint256)
+    {
+        uint256 supply = vaults[asset][rewardId].totalSupply; // Saves an extra SLOAD if totalSupply is non-zero.
 
         return supply == 0 ? shares : shares.mulDivUp(totalAssets(), supply);
     }
 
-    function previewWithdraw(ERC1155 asset, uint256 assets) public view virtual returns (uint256) {
-        uint256 supply = vaults[asset].totalSupply; // Saves an extra SLOAD if totalSupply is non-zero.
+    function previewWithdraw(HeliosERC1155 asset, uint256 rewardId,  uint256 assets)
+        public
+        view
+        returns (uint256)
+    {
+        uint256 supply = vaults[asset][rewardId].totalSupply; // Saves an extra SLOAD if totalSupply is non-zero.
 
         return supply == 0 ? assets : assets.mulDivUp(supply, totalAssets());
     }
 
-    function previewRedeem(ERC1155 asset, uint256 shares) public view virtual returns (uint256) {
-        return convertToAssets(asset, shares);
+    function previewRedeem(HeliosERC1155 asset, uint256 rewardId,  uint256 shares)
+        public
+        view
+        returns (uint256)
+    {
+        return convertToAssets(asset, rewardId, shares);
     }
 
     /*///////////////////////////////////////////////////////////////
                      DEPOSIT/WITHDRAWAL LIMIT LOGIC
     //////////////////////////////////////////////////////////////*/
 
-    function maxDeposit(address) public view virtual returns (uint256) {
+    function maxDeposit(address) public view returns (uint256) {
         return type(uint256).max;
     }
 
-    function maxMint(address) public view virtual returns (uint256) {
+    function maxMint(address) public view returns (uint256) {
         return type(uint256).max;
     }
 
-    function maxWithdraw(ERC1155 asset, address owner) public view virtual returns (uint256) {
-        return convertToAssets(asset, balanceOf[owner][vaults[asset].id]);
+    function maxWithdraw(HeliosERC1155 asset, uint256 rewardId, address owner)
+        public
+        view
+        returns (uint256)
+    {
+        return convertToAssets(asset, rewardId, balanceLocked[owner][rewardId]);
     }
 
-    function maxRedeem(ERC1155 asset, address owner) public view virtual returns (uint256) {
-        return balanceOf[owner][vaults[asset].id];
+    function maxRedeem(uint256 rewardId, address owner)
+        public
+        view
+        returns (uint256)
+    {
+        return balanceLocked[owner][rewardId];
     }
 
     /*///////////////////////////////////////////////////////////////
                          INTERNAL HOOKS LOGIC
     //////////////////////////////////////////////////////////////*/
 
-    function beforeWithdraw(ERC1155 asset, uint256 assets, uint256 shares) internal virtual {}
+    function beforeWithdraw(
+        HeliosERC1155 asset,
+        uint256 assets,
+        uint256 shares
+    ) internal {}
 
-    function afterDeposit(ERC1155 asset, uint256 assets, uint256 shares) internal virtual {}
+    function afterDeposit(
+        HeliosERC1155 asset,
+        uint256 assets,
+        uint256 shares
+    ) internal {}
 }
-
