@@ -76,7 +76,7 @@ contract Helios is Rewards, Multicall {
         private pairSettings;
 
     /// @notice map rewardVault to Helios pool
-    // mapping(uint256 => uint256) public rewardVaults;
+    mapping(uint256 => uint256) public rewardVaults;
 
     struct Pair {
         address token0; // first pair token
@@ -95,32 +95,24 @@ contract Helios is Rewards, Multicall {
     function enableRewards(
         HeliosERC1155 heliosToken,
         uint256 poolId,
-        ERC20 rewardToken
+        address rewardToken
     ) external returns (uint256 rewardId) {
         if (poolId > totalSupply) revert NoPair();
+        if (rewardVaults[poolId] != 0) revert(); // set 0 on pool creation?
         rewardId = Rewards.create(heliosToken, poolId, rewardToken); // drop contract?
+        rewardVaults[poolId] = rewardId;
     }
 
     function enterRewards(
-        HeliosERC1155 heliosToken,
+        HeliosERC1155 asset,
         uint256 rewardId,
         uint256 poolId,
-        uint256 amount,
+        uint256 assets,
         address receiver
     ) external {
-        Rewards.deposit(heliosToken, rewardId, poolId, amount, receiver);
+        if (rewardVaults[poolId] != rewardId) revert();
+        Rewards.deposit(asset, rewardId, poolId, assets, receiver);
     }
-
-    function leaveRewards(
-        HeliosERC1155 heliosToken,
-        uint256 rewardId,
-        uint256 amount,
-        address receiver,
-        address owner
-    ) external {
-        Rewards.withdraw(heliosToken, rewardId, amount, receiver);
-    }
-
 
     /// -----------------------------------------------------------------------
     /// LP Logic
@@ -205,7 +197,7 @@ contract Helios is Rewards, Multicall {
 
         totalSupplyForId[id] = liq;
 
-        emit PairCreated(to, id, token0, token1);
+        // emit PairCreated(to, id, token0, token1);
         emit LiquidityAdded(to, id, token0amount, token1amount);
     }
 
@@ -352,5 +344,4 @@ contract Helios is Rewards, Multicall {
 
         emit Swapped(to, id, tokenIn, amountIn, amountOut);
     }
-
 }

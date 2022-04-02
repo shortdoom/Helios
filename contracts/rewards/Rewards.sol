@@ -47,7 +47,7 @@ contract Rewards is HeliosERC1155 {
     mapping(address => mapping(uint256 => uint256)) public balanceLocked;
 
     /// Base Helios1155 LP-token => rewardId => Vault
-    mapping(HeliosERC1155 => mapping(uint256 => Vault)) public vaults; //, where uint == rewardId
+    mapping(HeliosERC1155 => mapping(uint256 => Vault)) public vaults;
 
     struct Vault {
         uint256 poolId;
@@ -61,19 +61,20 @@ contract Rewards is HeliosERC1155 {
 
     /// Only one Vault per reward token, but infinite Vaults with diff rTokens
     /// One reward token can exist in multiple vaults
-    /// asset = underlying of vaults[asset][rewardId]
-    function create(HeliosERC1155 asset, uint256 poolId, ERC20 rewardToken)
-        external
+    /// asset = underlying (deposited pool LP token) of vaults[asset][rewardId]
+    function create(HeliosERC1155 asset, uint256 poolId, address rewardToken)
+        internal
         returns (uint256 rewardId)
     {
-        require(vaults[asset][rewardId].poolId != poolId, "EXISTS");
 
         unchecked {
             rewardId = ++totalSupplyRewards;
         }
 
         vaults[asset][rewardId].poolId = poolId;
-        vaults[asset][rewardId].rewardToken = rewardToken;
+        vaults[asset][rewardId].rewardToken = ERC20(rewardToken);
+
+        // afterCreate() should init ERC20
 
         emit Create(asset, rewardId);
     }
@@ -84,11 +85,12 @@ contract Rewards is HeliosERC1155 {
         uint256 poolId,
         uint256 assets,
         address receiver
-    ) external returns (uint256 shares) {
+    ) internal returns (uint256 shares) {
         require((shares = previewDeposit(asset, rewardId, assets)) != 0, "ZERO_SHARES");
 
         /// @notice can this be done differently?
         asset.safeTransferFrom(msg.sender, address(this), poolId, assets, "");
+        /// @notice check if reward=pool match
         balanceLocked[msg.sender][rewardId] += assets;
         vaults[asset][rewardId].totalSupply += shares;
 
