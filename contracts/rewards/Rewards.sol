@@ -38,7 +38,7 @@ contract Rewards is HeliosERC1155 {
     );
 
     /*///////////////////////////////////////////////////////////////
-                                 STORAGE
+                          REWARDS STORAGE
     //////////////////////////////////////////////////////////////*/
 
     uint256 public totalSupplyRewards;
@@ -90,7 +90,6 @@ contract Rewards is HeliosERC1155 {
 
         /// @notice can this be done differently?
         asset.safeTransferFrom(msg.sender, address(this), poolId, assets, "");
-        /// @notice check if reward=pool match
         balanceLocked[msg.sender][rewardId] += assets;
         vaults[asset][rewardId].totalSupply += shares;
 
@@ -105,7 +104,7 @@ contract Rewards is HeliosERC1155 {
         uint256 poolId,
         uint256 shares,
         address receiver
-    ) public returns (uint256 assets) {
+    ) internal returns (uint256 assets) {
         assets = previewMint(asset, rewardId, shares); // No need to check for rounding error, previewMint rounds up.
 
         asset.safeTransferFrom(msg.sender, address(this), poolId, assets, "");
@@ -123,7 +122,7 @@ contract Rewards is HeliosERC1155 {
         uint256 assets,
         address receiver,
         address owner
-    ) public returns (uint256 shares) {
+    ) internal returns (uint256 shares) {
         shares = previewWithdraw(asset, rewardId, assets); // No need to check for rounding error, previewWithdraw rounds up.
         if (msg.sender != owner)
             require(isApprovedForAll[owner][msg.sender], "NOT_OPERATOR");
@@ -143,7 +142,7 @@ contract Rewards is HeliosERC1155 {
         uint256 shares,
         address receiver,
         address owner
-    ) public returns (uint256 assets) {
+    ) internal returns (uint256 assets) {
         if (msg.sender != owner)
             require(isApprovedForAll[owner][msg.sender], "NOT_OPERATOR");
 

@@ -5,19 +5,19 @@ import {HeliosERC1155} from "./HeliosERC1155.sol";
 import {SafeTransferLib} from "./libraries/SafeTransferLib.sol";
 import {Multicall} from "./utils/Multicall.sol";
 import {IPair} from "./interfaces/IPair.sol";
-// import {IRewards} from "./interfaces/IRewards.sol";
+import {FixedPointMathLib} from "@rari-capital/solmate/src/utils/FixedPointMathLib.sol";
 import {ERC20} from "@rari-capital/solmate/src/tokens/ERC20.sol";
-import {Rewards} from "./rewards/Rewards.sol";
 
 import "hardhat/console.sol";
 
 /// @notice Extensible 1155-based exchange for liquidity pairs
-contract Helios is Rewards, Multicall {
+contract Helios is HeliosERC1155, Multicall {
     /// -----------------------------------------------------------------------
     /// Library usage
     /// -----------------------------------------------------------------------
 
     using SafeTransferLib for address;
+    using FixedPointMathLib for uint256;
 
     /// -----------------------------------------------------------------------
     /// Events
@@ -75,9 +75,6 @@ contract Helios is Rewards, Multicall {
     mapping(address => mapping(address => mapping(IPair => mapping(uint256 => uint256))))
         private pairSettings;
 
-    /// @notice map rewardVault to Helios pool
-    mapping(uint256 => uint256) public rewardVaults;
-
     struct Pair {
         address token0; // first pair token
         address token1; // second pair token
@@ -88,31 +85,145 @@ contract Helios is Rewards, Multicall {
     }
 
     /*///////////////////////////////////////////////////////////////
+                          REWARDS STORAGE
+    //////////////////////////////////////////////////////////////*/
+
+    uint256 public totalSupplyRewards;
+
+    /// @notice map rewardVault to Helios pool
+    mapping(uint256 => uint256) public rewardVaults;
+
+    /// owner => rewardId => balance
+    mapping(address => mapping(uint256 => uint256)) public balanceLocked;
+
+    /// Base Helios1155 LP-token => rewardId => Vault
+    mapping(HeliosERC1155 => mapping(uint256 => Vault)) public vaults;
+
+    struct Vault {
+        uint256 poolId;
+        uint256 totalSupply;
+        ERC20 rewardToken; // ERC20 rewardToken?
+    }
+
+    /*///////////////////////////////////////////////////////////////
                              REWARDS LOGIC
     //////////////////////////////////////////////////////////////*/
 
-    /// @notice Provide address of existing pool and lpToken
-    function enableRewards(
-        HeliosERC1155 heliosToken,
+    function create(
+        HeliosERC1155 asset,
         uint256 poolId,
         address rewardToken
     ) external returns (uint256 rewardId) {
         if (poolId > totalSupply) revert NoPair();
         if (rewardVaults[poolId] != 0) revert(); // set 0 on pool creation?
-        rewardId = Rewards.create(heliosToken, poolId, rewardToken); // drop contract?
+        unchecked {
+            rewardId = ++totalSupplyRewards;
+        }
+
+        vaults[asset][rewardId].poolId = poolId;
+        vaults[asset][rewardId].rewardToken = ERC20(rewardToken);
         rewardVaults[poolId] = rewardId;
+
+        // afterCreate() should init ERC20
     }
 
-    function enterRewards(
+    function deposit(
         HeliosERC1155 asset,
         uint256 rewardId,
         uint256 poolId,
-        uint256 assets,
-        address receiver
-    ) external {
-        if (rewardVaults[poolId] != rewardId) revert();
-        Rewards.deposit(asset, rewardId, poolId, assets, receiver);
+        uint256 assets
+    ) external returns (uint256 shares) {
+        require(
+            (shares = previewDeposit(asset, rewardId, assets)) != 0,
+            "ZERO_SHARES"
+        );
+        asset.safeTransferFrom(msg.sender, address(this), poolId, assets, "");
+        balanceLocked[msg.sender][rewardId] += assets;
+        vaults[asset][rewardId].totalSupply += shares;
     }
+
+    function withdraw(
+        HeliosERC1155 asset,
+        uint256 rewardId,
+        uint256 assets,
+        address owner
+    ) internal returns (uint256 shares) {
+        shares = previewWithdraw(asset, rewardId, assets); // No need to check for rounding error, previewWithdraw rounds up.
+        if (msg.sender != owner)
+            require(isApprovedForAll[owner][msg.sender], "NOT_OPERATOR");
+        balanceLocked[msg.sender][rewardId] -= shares;
+        vaults[asset][rewardId].totalSupply -= shares;
+        vaults[asset][rewardId].rewardToken.transferFrom(
+            address(this),
+            msg.sender,
+            assets
+        );
+    }
+
+    function previewDeposit(
+        HeliosERC1155 asset,
+        uint256 rewardId,
+        uint256 assets
+    ) public view returns (uint256) {
+        return convertToShares(asset, rewardId, assets);
+    }
+
+    function previewWithdraw(
+        HeliosERC1155 asset,
+        uint256 rewardId,
+        uint256 assets
+    ) public view returns (uint256) {
+        uint256 supply = vaults[asset][rewardId].totalSupply; // Saves an extra SLOAD if totalSupply is non-zero.
+
+        return supply == 0 ? assets : assets.mulDivUp(supply, totalAssets());
+    }
+
+    function totalAssets() public view returns (uint256) {
+        return 0;
+    }
+
+    function convertToShares(
+        HeliosERC1155 asset,
+        uint256 rewardId,
+        uint256 assets
+    ) public view returns (uint256) {
+        uint256 supply = vaults[asset][rewardId].totalSupply; // Saves an extra SLOAD if totalSupply is non-zero.
+
+        return supply == 0 ? assets : assets.mulDivDown(supply, totalAssets());
+    }
+
+    function convertToAssets(
+        HeliosERC1155 asset,
+        uint256 rewardId,
+        uint256 shares
+    ) public view returns (uint256) {
+        uint256 supply = vaults[asset][rewardId].totalSupply; // Saves an extra SLOAD if totalSupply is non-zero.
+
+        return supply == 0 ? shares : shares.mulDivDown(totalAssets(), supply);
+    }
+
+    /// @notice Provide address of existing pool and lpToken
+    // function enableRewards(
+    //     HeliosERC1155 heliosToken,
+    //     uint256 poolId,
+    //     address rewardToken
+    // ) external returns (uint256 rewardId) {
+    //     if (poolId > totalSupply) revert NoPair();
+    //     if (rewardVaults[poolId] != 0) revert(); // set 0 on pool creation?
+    //     rewardId = Rewards.create(heliosToken, poolId, rewardToken); // drop contract?
+    //     rewardVaults[poolId] = rewardId;
+    // }
+
+    // function depositRewards(
+    //     HeliosERC1155 asset,
+    //     uint256 rewardId,
+    //     uint256 poolId,
+    //     uint256 assets,
+    //     address receiver
+    // ) external {
+    //     if (rewardVaults[poolId] != rewardId) revert();
+    //     Rewards.deposit(asset, rewardId, poolId, assets, receiver);
+    // }
 
     /// -----------------------------------------------------------------------
     /// LP Logic
