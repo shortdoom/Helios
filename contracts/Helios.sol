@@ -8,6 +8,8 @@ import {IPair} from "./interfaces/IPair.sol";
 import {FixedPointMathLib} from "@rari-capital/solmate/src/utils/FixedPointMathLib.sol";
 import {ERC20} from "@rari-capital/solmate/src/tokens/ERC20.sol";
 
+import {RewardToken} from "./rewards/RewardToken.sol";
+
 import "hardhat/console.sol";
 
 /// @notice Extensible 1155-based exchange for liquidity pairs
@@ -99,10 +101,12 @@ contract Helios is HeliosERC1155, Multicall {
     /// Base Helios1155 LP-token => rewardId => Vault
     mapping(HeliosERC1155 => mapping(uint256 => Vault)) public vaults;
 
+    RewardToken rewardToken;
+
     struct Vault {
         uint256 poolId;
         uint256 totalSupply;
-        ERC20 rewardToken; // ERC20 rewardToken?
+        RewardToken rewardToken; // ERC20 rewardToken?
     }
 
     /*///////////////////////////////////////////////////////////////
@@ -111,8 +115,7 @@ contract Helios is HeliosERC1155, Multicall {
 
     function create(
         HeliosERC1155 asset,
-        uint256 poolId,
-        address rewardToken
+        uint256 poolId
     ) external returns (uint256 rewardId) {
         if (poolId > totalSupply) revert NoPair();
         if (rewardVaults[poolId] != 0) revert(); // set 0 on pool creation?
@@ -121,10 +124,9 @@ contract Helios is HeliosERC1155, Multicall {
         }
 
         vaults[asset][rewardId].poolId = poolId;
-        vaults[asset][rewardId].rewardToken = ERC20(rewardToken);
+        vaults[asset][rewardId].rewardToken = new RewardToken("name", "sym", 18);
         rewardVaults[poolId] = rewardId;
 
-        // afterCreate() should init ERC20
     }
 
     function deposit(
@@ -133,6 +135,7 @@ contract Helios is HeliosERC1155, Multicall {
         uint256 poolId,
         uint256 assets
     ) external returns (uint256 shares) {
+        if (rewardVaults[poolId] != rewardId) revert();
         require(
             (shares = previewDeposit(asset, rewardId, assets)) != 0,
             "ZERO_SHARES"
@@ -153,11 +156,7 @@ contract Helios is HeliosERC1155, Multicall {
             require(isApprovedForAll[owner][msg.sender], "NOT_OPERATOR");
         balanceLocked[msg.sender][rewardId] -= shares;
         vaults[asset][rewardId].totalSupply -= shares;
-        vaults[asset][rewardId].rewardToken.transferFrom(
-            address(this),
-            msg.sender,
-            assets
-        );
+        vaults[asset][rewardId].rewardToken._mint(msg.sender, shares);
     }
 
     function previewDeposit(
@@ -165,7 +164,8 @@ contract Helios is HeliosERC1155, Multicall {
         uint256 rewardId,
         uint256 assets
     ) public view returns (uint256) {
-        return convertToShares(asset, rewardId, assets);
+        uint256 supply = vaults[asset][rewardId].totalSupply;
+        return supply == 0 ? assets : assets.mulDivDown(supply, totalAssets(asset, rewardId));
     }
 
     function previewWithdraw(
@@ -173,34 +173,14 @@ contract Helios is HeliosERC1155, Multicall {
         uint256 rewardId,
         uint256 assets
     ) public view returns (uint256) {
-        uint256 supply = vaults[asset][rewardId].totalSupply; // Saves an extra SLOAD if totalSupply is non-zero.
-
-        return supply == 0 ? assets : assets.mulDivUp(supply, totalAssets());
+        uint256 supply = vaults[asset][rewardId].totalSupply;
+        return supply == 0 ? assets : assets.mulDivUp(supply, totalAssets(asset, rewardId));
     }
 
-    function totalAssets() public view returns (uint256) {
-        return 0;
+    function totalAssets(HeliosERC1155 asset, uint256 rewardId) public view returns (uint256) {
+        return vaults[asset][rewardId].totalSupply;
     }
 
-    function convertToShares(
-        HeliosERC1155 asset,
-        uint256 rewardId,
-        uint256 assets
-    ) public view returns (uint256) {
-        uint256 supply = vaults[asset][rewardId].totalSupply; // Saves an extra SLOAD if totalSupply is non-zero.
-
-        return supply == 0 ? assets : assets.mulDivDown(supply, totalAssets());
-    }
-
-    function convertToAssets(
-        HeliosERC1155 asset,
-        uint256 rewardId,
-        uint256 shares
-    ) public view returns (uint256) {
-        uint256 supply = vaults[asset][rewardId].totalSupply; // Saves an extra SLOAD if totalSupply is non-zero.
-
-        return supply == 0 ? shares : shares.mulDivDown(totalAssets(), supply);
-    }
 
     /// @notice Provide address of existing pool and lpToken
     // function enableRewards(

@@ -114,6 +114,22 @@ describe("Helios", function () {
       console.log("liquidity output from swapper: ", liq);
 
     });
+
+    it("create & deposit reward vault", async function () {
+      await helios.create(
+        lpToken.address,
+        1
+      );
+      await helios.deposit(
+        lpToken.address,
+        1,
+        1,
+        getBigNumber(100)
+      );
+
+    });
+
+
   });
 
   describe("Basic Testing", function () {
