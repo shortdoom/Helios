@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity >=0.8.4;
 
+import "hardhat/console.sol";
+
+
 /// @notice A generic interface for a contract which properly accepts ERC-1155 tokens
 /// @author Solmate (https://github.com/Rari-Capital/solmate/blob/main/src/tokens/ERC1155.sol)
 /// License-Identifier: AGPL-3.0-only
@@ -25,7 +28,7 @@ interface ERC1155TokenReceiver {
 /// @notice Modern, minimalist, and gas efficient standard ERC-1155 implementation with meta-tx support
 /// @author Modified from Solmate (https://github.com/Rari-Capital/solmate/blob/main/src/tokens/ERC1155.sol)
 /// License-Identifier: AGPL-3.0-only
-abstract contract HeliosERC1155 {
+contract HeliosERC1155 is ERC1155TokenReceiver{
     /// -----------------------------------------------------------------------
     /// Events
     /// -----------------------------------------------------------------------
@@ -283,5 +286,21 @@ abstract contract HeliosERC1155 {
         balanceOf[from][id] -= amount;
         emit TransferSingle(msg.sender, from, address(0), id, amount);
     }
+
+    function onERC1155BatchReceived(
+        address operator,
+        address from,
+        uint256[] calldata ids,
+        uint256[] calldata amounts,
+        bytes calldata data
+    ) external returns (bytes4) {}
+
+    function onERC1155Received(
+        address operator,
+        address from,
+        uint256 id,
+        uint256 amount,
+        bytes calldata data
+    ) external returns (bytes4) {}
 
 }

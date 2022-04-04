@@ -7,7 +7,7 @@ import {
   Helios__factory,
   XYKswapper__factory,
   Token__factory,
-  HeliosERC1155__factory
+  HeliosERC1155__factory,
 } from "../typechain-types";
 import { Interface } from "ethers/lib/utils";
 
@@ -31,7 +31,6 @@ describe("Helios", function () {
   let bob: SignerWithAddress; // signerB
   let carol: SignerWithAddress; // signerC
   let signers: SignerWithAddress[]; // signers array
-  
 
   /// This should be moved to helper functions
   async function mintTokens(signer: SignerWithAddress, amount: number) {
@@ -47,7 +46,7 @@ describe("Helios", function () {
   /// Decode return values from non view/pure functions
   async function addedLiq(funcsig: string, data: any) {
     /// https://github.com/ChainSafe/web3.js/issues/3016#issuecomment-828274902
-    data = heliosInterface.decodeFunctionResult(funcsig, "0x" + data.slice(10))
+    data = heliosInterface.decodeFunctionResult(funcsig, "0x" + data.slice(10));
     if (funcsig == "addLiquidity") {
       return data[0].toString();
     } else {
@@ -58,10 +57,10 @@ describe("Helios", function () {
   describe("Values testing", function () {
     before(async () => {
       [deployer, bob, carol] = await ethers.getSigners();
-      signers = [deployer, bob, carol];
+      signers = [deployer];
 
       const Helios = new Helios__factory(deployer);
-      heliosInterface = new ethers.utils.Interface(Helios__factory.abi)
+      heliosInterface = new ethers.utils.Interface(Helios__factory.abi);
       helios = await Helios.deploy();
       await helios.deployed();
 
@@ -75,7 +74,11 @@ describe("Helios", function () {
       token1 = await TokenFactory.deploy("Dai Stablecoin", "DAI");
       await token1.deployed();
 
-      lpToken = new Contract(helios.address, HeliosERC1155__factory.abi, deployer);
+      // lpToken = new Contract(
+      //   helios.address,
+      //   HeliosERC1155__factory.abi,
+      //   deployer
+      // );
 
       for (let signer of signers) {
         await mintTokens(signer, 10000);
@@ -91,12 +94,11 @@ describe("Helios", function () {
         0,
         "0x"
       );
-      
+
       const liq = await addedLiq("createPair", tx.data);
       console.log("liquidity output from swapper: ", liq);
-      const _bal: BigNumber = await lpToken.balanceOf(deployer.address, 1);
-      console.log("LP balance after deploy: ", _bal.toString())
-
+      const _bal: BigNumber = await helios.balanceOf(deployer.address, 1);
+      console.log("LP balance after deploy: ", _bal.toString());
     });
 
     it("addLiquidity to the same id", async function () {
@@ -107,29 +109,21 @@ describe("Helios", function () {
         getBigNumber(100),
         "0x"
       );
-
-      const _bal: BigNumber = await lpToken.balanceOf(deployer.address, 1);
-      console.log("LP balance after addLiquidity: ", _bal.toString())
-      const liq = await addedLiq("addLiquidity", tx.data);
-      console.log("liquidity output from swapper: ", liq);
-
     });
 
-    it("create & deposit reward vault", async function () {
-      await helios.create(
-        lpToken.address,
-        1
-      );
-      await helios.deposit(
-        lpToken.address,
-        1,
-        1,
-        getBigNumber(100)
-      );
-
+    it("create reward vault", async function () {
+      await helios.create(helios.address, 1);
     });
 
+    it("transfer reward token", async function () {
+      await helios.safeTransferFrom(deployer.address, bob.address, 1, getBigNumber(19), '0x');
+    });
 
+    it("deposit to reward vault", async function () {
+      console.log("helios", helios.address, "deployer", deployer.address)
+      await helios.setApprovalForAll(helios.address, getBigNumber(10));
+      await helios.deposit(helios.address, 1, 1, getBigNumber(10), '0x');
+    });
   });
 
   describe("Basic Testing", function () {
