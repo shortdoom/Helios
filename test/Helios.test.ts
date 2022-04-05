@@ -78,15 +78,7 @@ describe("Helios", function () {
       token1 = await TokenFactory.deploy("Dai Stablecoin", "DAI");
       await token1.deployed();
 
-      // lpToken = new Contract(
-      //   helios.address,
-      //   HeliosERC1155__factory.abi,
-      //   deployer
-      // );
-
-      for (let signer of signers) {
-        await mintTokens(signer, 10000);
-      }
+      await mintTokens(deployer, 10000);
 
       const tx = await helios.createPair(
         deployer.address,
@@ -156,9 +148,7 @@ describe("Helios", function () {
       token1 = await TokenFactory.deploy("Dai Stablecoin", "DAI");
       await token1.deployed();
 
-      for (let signer of signers) {
-        await mintTokens(signer, 10000);
-      }
+      await mintTokens(deployer, 10000);
 
       await helios.createPair(
         deployer.address,
