@@ -63,10 +63,19 @@ abstract contract HeliosERC1155 {
 
     mapping(address => mapping(uint256 => uint256)) public balanceOf;
     mapping(address => mapping(address => bool)) public isApprovedForAll;
+    
+    /// tracks amount + timestamp of locking LP
+    uint256 public positionTracker;
     /// owner => rewardId to which locked => amount
     mapping(address => mapping(uint256 => uint256)) public balanceLocked;
+    /// positionNo => details
+    mapping(uint256 => Allocation) public position;
 
-
+    struct Allocation {
+        uint256 rewardId;
+        uint256 timestamp;
+        uint256 amount;
+    }
 
     /// -----------------------------------------------------------------------
     /// EIP-2612-like Storage
@@ -301,14 +310,20 @@ abstract contract HeliosERC1155 {
     function _lock(
         uint256 id,
         uint256 amount
-    ) internal {
-        balanceLocked[msg.sender][id] += amount;
+    ) internal returns (uint256 posNo){
+        posNo = ++positionTracker;
+        position[posNo].timestamp = block.timestamp;
+        position[posNo].amount += amount;
+        position[posNo].rewardId += id;
+        balanceLocked[msg.sender][id]+= amount;
     }
 
     function _unlock(
         uint256 id,
-        uint256 amount
+        uint256 amount,
+        uint256 posNo
     ) internal {
+        position[posNo].amount -= amount;
         balanceLocked[msg.sender][id] -= amount;
     }
 

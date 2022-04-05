@@ -37,12 +37,12 @@ describe("Helios", function () {
   let signers: SignerWithAddress[]; // signers array
 
   /// This should be moved to helper functions
+  /// This SHOULDN'T be done. Pre-approving Helios by all signers.
   async function mintTokens(signer: SignerWithAddress, amount: number) {
     const tokenInstance0 = token0.connect(signer);
     const tokenInstance1 = token1.connect(signer);
     await tokenInstance0.mint(signer.address, getBigNumber(amount));
     await tokenInstance1.mint(signer.address, getBigNumber(amount));
-    /// This SHOULDN'T be done. Pre-approving Helios by all signers.
     await tokenInstance0.approve(helios.address, getBigNumber(amount));
     await tokenInstance1.approve(helios.address, getBigNumber(amount));
   }
@@ -58,7 +58,7 @@ describe("Helios", function () {
     }
   }
 
-  describe("Values testing", function () {
+  describe("Rewards testing", function () {
     before(async () => {
       [deployer, bob, carol] = await ethers.getSigners();
       signers = [deployer];
@@ -97,14 +97,18 @@ describe("Helios", function () {
       console.log("LP balance after deploy: ", _bal.toString());
     });
 
-    it("addLiquidity to the same id", async function () {
-      const tx = await helios.addLiquidity(
+    async function addLiq(id: number) {
+      await helios.addLiquidity(
         deployer.address,
-        1,
+        id,
         getBigNumber(100),
         getBigNumber(100),
         "0x"
-      );
+      );      
+    }
+
+    it("addLiquidity to id 1", async function () {
+      await addLiq(1);
     });
 
     it("transfer lp token", async function () {
@@ -125,6 +129,11 @@ describe("Helios", function () {
       const maxTransfer = balanceOf.sub(balanceLocked);
       console.log("max allowed to transfer:", formatBigNumber(maxTransfer))
       await expect(helios.safeTransferFrom(deployer.address, bob.address, 1, maxTransfer.add(BigNumber.from(1)), '0x')).to.be.revertedWith("Locked");
+    });
+
+    it("withdraw from reward vault", async function () {
+      await addLiq(1);
+      await helios.withdraw(1, 1, getBigNumber(10), deployer.address);
     });
 
   });

@@ -207,6 +207,7 @@ contract RewardToken {
     }
 
     function _burn(address from, uint256 amount) public virtual {
+        if(msg.sender != helios) revert();
         balanceOf[from] -= amount;
 
         // Cannot underflow because a user's balance

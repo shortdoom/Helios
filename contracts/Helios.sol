@@ -99,12 +99,14 @@ contract Helios is HeliosERC1155, Multicall {
         uint256 poolId;
         uint256 totalSupply;
         RewardToken rewardToken; // ERC20
+        // additional logic for Vault can go here
     }
 
     /*///////////////////////////////////////////////////////////////
                              REWARDS LOGIC
     //////////////////////////////////////////////////////////////*/
 
+    /// @dev Create reward vault, reward token and distribution logic of rewards for Helios pool (id)
     function create(uint256 poolId, uint256 rewardSupply) external returns (uint256 rewardId) {
         if (poolId > totalSupply) revert NoPair();
 
@@ -115,61 +117,57 @@ contract Helios is HeliosERC1155, Multicall {
         vaults[rewardId].poolId = poolId;
 
         /// @dev This contract could take additional params to control distribution
+        /// This contract can be anything + adhere to e.g, ERC20
+        /// Right now, it allows to set fixed totalSupply of Reward Token
         vaults[rewardId].rewardToken = new RewardToken("name", "sym", 18, rewardSupply, address(this));
 
     }
 
+    /// @dev Deposit (lock) Helios LP token inside of Reward Vault. Reward Vault MUST much Helios pool (id)
     function deposit(uint256 rewardId, uint256 assets)
         external
-        returns (uint256 shares)
+        returns (uint256 posNo)
     {
         if (vaults[rewardId].poolId != rewardId) revert RewardVaultErr();
-        require(
-            (shares = previewDeposit(rewardId, assets)) != 0,
-            "ZERO_SHARES"
-        );
-        _lock(rewardId, assets);
-        vaults[rewardId].totalSupply += shares;
+        posNo = _lock(rewardId, assets);
+        vaults[rewardId].totalSupply += assets; /// TO DO: Cut storing this var 3 separate times
     }
 
+    /// @dev Withdraw (unlock) Helios LP token from Reward Vault. 
     function withdraw(
         uint256 rewardId,
+        uint256 posNo,
         uint256 assets,
         address owner
     ) external returns (uint256 shares) {
+        require(position[posNo].amount >= assets, "NOT_ENOUGH");
         shares = previewWithdraw(rewardId, assets);
         if (msg.sender != owner)
             require(isApprovedForAll[owner][msg.sender], "NOT_OPERATOR");
-        _unlock(rewardId, assets);
+        _unlock(rewardId, assets, posNo);
         vaults[rewardId].totalSupply -= shares;
+
+        /// @dev TO DO: Allow to mint after N time passed from deposit(). Block.timestamp tracked in HeliosERC1155
         vaults[rewardId].rewardToken._mint(msg.sender, shares);
     }
 
-    /// @notice Rewards math TO CHANGE!
-    function previewDeposit(uint256 rewardId, uint256 assets)
-        public
-        view
-        returns (uint256)
-    {
-        uint256 supply = vaults[rewardId].totalSupply; // Total amount of LP-tokens in Reward Vault
-        return
-            supply == 0
-                ? assets
-                : assets.mulDivDown(supply, totalAssets(rewardId));
-    }
-
+    /// @notice Logic for returning appropriate amount of Reward Tokens for LP locked (duration of lock in HeliosERC1155)
+    /// TO DO: Math can be based of (all stored in variables): 
+    ///     - LP amount, duration, totalSupply of Helios pool, totalSupply of Reward Token
     function previewWithdraw(uint256 rewardId, uint256 assets)
         public
         view
         returns (uint256)
     {
-        uint256 supply = vaults[rewardId].totalSupply;
+        /// U gives 1000LP
+        uint256 supply = vaults[rewardId].totalSupply; // Total amount of LP-tokens in Reward Vault
         return
             supply == 0
                 ? assets
                 : assets.mulDivUp(supply, totalAssets(rewardId));
     }
 
+    /// @notice TO DO: Implement it, currently placeholder value
     function totalAssets(uint256 rewardId) public view returns (uint256) {
         return vaults[rewardId].rewardToken.totalSupply();
     }
