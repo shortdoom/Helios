@@ -51,18 +51,27 @@ contract RewardToken {
                                CONSTRUCTOR
     //////////////////////////////////////////////////////////////*/
 
+    address public helios;
+
     constructor(
         string memory _name,
         string memory _symbol,
-        uint8 _decimals
+        uint8 _decimals,
+        uint256 _totalSupply,
+        address _helios
+        // uint256 trickleTime == should give interval after there is distribution by _mint
+        // uint256 minLock == minimal vesting period for trickleTime to accrue
     ) {
         name = _name;
         symbol = _symbol;
         decimals = _decimals;
+        totalSupply = _totalSupply;
+        helios = _helios; 
 
         INITIAL_CHAIN_ID = block.chainid;
         INITIAL_DOMAIN_SEPARATOR = computeDomainSeparator();
     }
+
 
     /*///////////////////////////////////////////////////////////////
                               ERC20 LOGIC
@@ -183,8 +192,10 @@ contract RewardToken {
                        INTERNAL MINT/BURN LOGIC
     //////////////////////////////////////////////////////////////*/
 
-    function _mint(address to, uint256 amount) external virtual {
-        totalSupply += amount;
+    function _mint(address to, uint256 amount) public virtual {
+        if(msg.sender != helios) revert();
+        
+        totalSupply -= amount;
 
         // Cannot overflow because the sum of all user
         // balances can't exceed the max uint256 value.
@@ -195,7 +206,7 @@ contract RewardToken {
         emit Transfer(address(0), to, amount);
     }
 
-    function _burn(address from, uint256 amount) external virtual {
+    function _burn(address from, uint256 amount) public virtual {
         balanceOf[from] -= amount;
 
         // Cannot underflow because a user's balance

@@ -62,8 +62,11 @@ abstract contract HeliosERC1155 {
     /// -----------------------------------------------------------------------
 
     mapping(address => mapping(uint256 => uint256)) public balanceOf;
-    mapping(address => mapping(uint256 => uint256)) public balanceLocked;
     mapping(address => mapping(address => bool)) public isApprovedForAll;
+    /// owner => rewardId to which locked => amount
+    mapping(address => mapping(uint256 => uint256)) public balanceLocked;
+
+
 
     /// -----------------------------------------------------------------------
     /// EIP-2612-like Storage

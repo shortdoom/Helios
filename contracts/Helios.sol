@@ -85,16 +85,12 @@ contract Helios is HeliosERC1155, Multicall {
         uint8 fee; // fee back to pair liquidity providers
     }
 
-
     /*///////////////////////////////////////////////////////////////
                           REWARDS STORAGE
     //////////////////////////////////////////////////////////////*/
 
     /// @dev total no. of reward vaults
     uint256 public totalSupplyRewards;
-
-    /// @dev rewardId => poolId (Helios id)
-    mapping(uint256 => uint256) public rewardVaults; // ??? cut it
 
     /// @dev rewardId => Vault
     mapping(uint256 => Vault) public vaults;
@@ -109,30 +105,24 @@ contract Helios is HeliosERC1155, Multicall {
                              REWARDS LOGIC
     //////////////////////////////////////////////////////////////*/
 
-    function create(uint256 poolId)
-        external
-        returns (uint256 rewardId)
-    {
+    function create(uint256 poolId, uint256 rewardSupply) external returns (uint256 rewardId) {
         if (poolId > totalSupply) revert NoPair();
-        if (rewardVaults[poolId] != 0) revert(); // set 0 on pool creation?
+
         unchecked {
             rewardId = ++totalSupplyRewards;
         }
 
         vaults[rewardId].poolId = poolId;
-        vaults[rewardId].rewardToken = new RewardToken(
-            "name",
-            "sym",
-            18
-        );
-        rewardVaults[poolId] = rewardId;
-        console.log("rewardId", rewardId);
+
+        /// @dev This contract could take additional params to control distribution
+        vaults[rewardId].rewardToken = new RewardToken("name", "sym", 18, rewardSupply, address(this));
+
     }
 
-    function deposit(
-        uint256 rewardId,
-        uint256 assets
-    ) external returns (uint256 shares) {
+    function deposit(uint256 rewardId, uint256 assets)
+        external
+        returns (uint256 shares)
+    {
         if (vaults[rewardId].poolId != rewardId) revert RewardVaultErr();
         require(
             (shares = previewDeposit(rewardId, assets)) != 0,
@@ -156,21 +146,23 @@ contract Helios is HeliosERC1155, Multicall {
     }
 
     /// @notice Rewards math TO CHANGE!
-    function previewDeposit(
-        uint256 rewardId,
-        uint256 assets
-    ) public view returns (uint256) {
-        uint256 supply = vaults[rewardId].totalSupply;
+    function previewDeposit(uint256 rewardId, uint256 assets)
+        public
+        view
+        returns (uint256)
+    {
+        uint256 supply = vaults[rewardId].totalSupply; // Total amount of LP-tokens in Reward Vault
         return
             supply == 0
                 ? assets
                 : assets.mulDivDown(supply, totalAssets(rewardId));
     }
 
-    function previewWithdraw(
-        uint256 rewardId,
-        uint256 assets
-    ) public view returns (uint256) {
+    function previewWithdraw(uint256 rewardId, uint256 assets)
+        public
+        view
+        returns (uint256)
+    {
         uint256 supply = vaults[rewardId].totalSupply;
         return
             supply == 0
@@ -178,11 +170,7 @@ contract Helios is HeliosERC1155, Multicall {
                 : assets.mulDivUp(supply, totalAssets(rewardId));
     }
 
-    function totalAssets(uint256 rewardId)
-        public
-        view
-        returns (uint256)
-    {
+    function totalAssets(uint256 rewardId) public view returns (uint256) {
         return vaults[rewardId].rewardToken.totalSupply();
     }
 

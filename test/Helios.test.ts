@@ -112,7 +112,7 @@ describe("Helios", function () {
     });
 
     it("create reward vault", async function () {
-      await helios.create(1);
+      await helios.create(1, getBigNumber(1000));
     });
 
     it("deposit to reward vault", async function () {
