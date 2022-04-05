@@ -1,9 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity >=0.8.4;
 
-import "hardhat/console.sol";
-
-
 /// @notice A generic interface for a contract which properly accepts ERC-1155 tokens
 /// @author Solmate (https://github.com/Rari-Capital/solmate/blob/main/src/tokens/ERC1155.sol)
 /// License-Identifier: AGPL-3.0-only
@@ -28,7 +25,7 @@ interface ERC1155TokenReceiver {
 /// @notice Modern, minimalist, and gas efficient standard ERC-1155 implementation with meta-tx support
 /// @author Modified from Solmate (https://github.com/Rari-Capital/solmate/blob/main/src/tokens/ERC1155.sol)
 /// License-Identifier: AGPL-3.0-only
-contract HeliosERC1155 is ERC1155TokenReceiver{
+abstract contract HeliosERC1155 {
     /// -----------------------------------------------------------------------
     /// Events
     /// -----------------------------------------------------------------------
@@ -58,12 +55,14 @@ contract HeliosERC1155 is ERC1155TokenReceiver{
     error InvalidReceiver();
     error SigExpired();
     error InvalidSig();
+    error Locked();
 
     /// -----------------------------------------------------------------------
     /// ERC-1155 Storage
     /// -----------------------------------------------------------------------
 
     mapping(address => mapping(uint256 => uint256)) public balanceOf;
+    mapping(address => mapping(uint256 => uint256)) public balanceLocked;
     mapping(address => mapping(address => bool)) public isApprovedForAll;
 
     /// -----------------------------------------------------------------------
@@ -142,8 +141,9 @@ contract HeliosERC1155 is ERC1155TokenReceiver{
         uint256 id,
         uint256 amount,
         bytes calldata data
-    ) external payable {
+    ) public payable {
         if (msg.sender != from && !isApprovedForAll[from][msg.sender]) revert InvalidOperator();
+        if (totalFree(from, id) < amount) revert Locked();
 
         balanceOf[from][id] -= amount;
         // cannot overflow because the sum of all user
@@ -283,24 +283,30 @@ contract HeliosERC1155 is ERC1155TokenReceiver{
         uint256 id,
         uint256 amount
     ) internal {
+        if (totalFree(from, id) < amount) revert Locked();
         balanceOf[from][id] -= amount;
         emit TransferSingle(msg.sender, from, address(0), id, amount);
     }
 
-    function onERC1155BatchReceived(
-        address operator,
+    function totalFree(
         address from,
-        uint256[] calldata ids,
-        uint256[] calldata amounts,
-        bytes calldata data
-    ) external returns (bytes4) {}
+        uint256 id
+    ) internal view returns (uint256) {
+        return balanceOf[from][id] - balanceLocked[from][id];
+    }
 
-    function onERC1155Received(
-        address operator,
-        address from,
+    function _lock(
         uint256 id,
-        uint256 amount,
-        bytes calldata data
-    ) external returns (bytes4) {}
+        uint256 amount
+    ) internal {
+        balanceLocked[msg.sender][id] += amount;
+    }
+
+    function _unlock(
+        uint256 id,
+        uint256 amount
+    ) internal {
+        balanceLocked[msg.sender][id] -= amount;
+    }
 
 }

@@ -19,6 +19,10 @@ function getBigNumber(amount: number, decimals = 18) {
   return BigNumber.from(amount).mul(BigNumber.from(10).pow(decimals));
 }
 
+function formatBigNumber(arg: BigNumber) {
+  return ethers.utils.formatUnits(arg);
+}
+
 describe("Helios", function () {
   let helios: Contract; // Helios contract instance
   let heliosInterface: Interface;
@@ -111,19 +115,26 @@ describe("Helios", function () {
       );
     });
 
-    it("create reward vault", async function () {
-      await helios.create(helios.address, 1);
+    it("transfer lp token", async function () {
+      await helios.safeTransferFrom(deployer.address, bob.address, 1, getBigNumber(10), '0x');
     });
 
-    it("transfer reward token", async function () {
-      await helios.safeTransferFrom(deployer.address, bob.address, 1, getBigNumber(19), '0x');
+    it("create reward vault", async function () {
+      await helios.create(1);
     });
 
     it("deposit to reward vault", async function () {
-      console.log("helios", helios.address, "deployer", deployer.address)
-      await helios.setApprovalForAll(helios.address, getBigNumber(10));
-      await helios.deposit(helios.address, 1, 1, getBigNumber(10), '0x');
+      await helios.deposit(1, getBigNumber(70));
     });
+
+    it("can't transfer locked", async function () {
+      const balanceLocked = await helios.balanceLocked(deployer.address, 1);
+      const balanceOf = await helios.balanceOf(deployer.address, 1);
+      const maxTransfer = balanceOf.sub(balanceLocked);
+      console.log("max allowed to transfer:", formatBigNumber(maxTransfer))
+      await expect(helios.safeTransferFrom(deployer.address, bob.address, 1, maxTransfer.add(BigNumber.from(1)), '0x')).to.be.revertedWith("Locked");
+    });
+
   });
 
   describe("Basic Testing", function () {

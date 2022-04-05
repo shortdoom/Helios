@@ -90,17 +90,14 @@ contract Helios is HeliosERC1155, Multicall {
                           REWARDS STORAGE
     //////////////////////////////////////////////////////////////*/
 
-    /// @dev reflects total no. of reward vaults
+    /// @dev total no. of reward vaults
     uint256 public totalSupplyRewards;
 
-    /// @dev map rewardVault to Helios pool
-    mapping(uint256 => uint256) public rewardVaults;
+    /// @dev rewardId => poolId (Helios id)
+    mapping(uint256 => uint256) public rewardVaults; // ??? cut it
 
-    /// @dev owner => rewardId => balance
-    mapping(address => mapping(uint256 => uint256)) public balanceLocked;
-
-    /// @dev Base Helios1155 LP-token => rewardId => Vault
-    mapping(HeliosERC1155 => mapping(uint256 => Vault)) public vaults;
+    /// @dev rewardId => Vault
+    mapping(uint256 => Vault) public vaults;
 
     struct Vault {
         uint256 poolId;
@@ -112,7 +109,7 @@ contract Helios is HeliosERC1155, Multicall {
                              REWARDS LOGIC
     //////////////////////////////////////////////////////////////*/
 
-    function create(HeliosERC1155 asset, uint256 poolId)
+    function create(uint256 poolId)
         external
         returns (uint256 rewardId)
     {
@@ -122,8 +119,8 @@ contract Helios is HeliosERC1155, Multicall {
             rewardId = ++totalSupplyRewards;
         }
 
-        vaults[asset][rewardId].poolId = poolId;
-        vaults[asset][rewardId].rewardToken = new RewardToken(
+        vaults[rewardId].poolId = poolId;
+        vaults[rewardId].rewardToken = new RewardToken(
             "name",
             "sym",
             18
@@ -133,70 +130,60 @@ contract Helios is HeliosERC1155, Multicall {
     }
 
     function deposit(
-        HeliosERC1155 asset,
         uint256 rewardId,
-        uint256 poolId,
-        uint256 assets,
-        bytes memory data
+        uint256 assets
     ) external returns (uint256 shares) {
-        // if (rewardVaults[poolId] != rewardId) revert RewardVaultErr();
-        // require(
-        //     (shares = previewDeposit(asset, rewardId, assets)) != 0,
-        //     "ZERO_SHARES"
-        // );
-        console.log("caller", msg.sender, "to", address(this));
-        console.log("asset", address(asset));
-        asset.safeTransferFrom(msg.sender, address(this), poolId, assets, data);
-        balanceLocked[msg.sender][rewardId] += assets;
-        vaults[asset][rewardId].totalSupply += shares;
+        if (vaults[rewardId].poolId != rewardId) revert RewardVaultErr();
+        require(
+            (shares = previewDeposit(rewardId, assets)) != 0,
+            "ZERO_SHARES"
+        );
+        _lock(rewardId, assets);
+        vaults[rewardId].totalSupply += shares;
     }
 
     function withdraw(
-        HeliosERC1155 asset,
         uint256 rewardId,
         uint256 assets,
         address owner
     ) external returns (uint256 shares) {
-        /// @notice check for vesting period here
-        shares = previewWithdraw(asset, rewardId, assets);
+        shares = previewWithdraw(rewardId, assets);
         if (msg.sender != owner)
             require(isApprovedForAll[owner][msg.sender], "NOT_OPERATOR");
-        balanceLocked[msg.sender][rewardId] -= shares;
-        vaults[asset][rewardId].totalSupply -= shares;
-        vaults[asset][rewardId].rewardToken._mint(msg.sender, shares);
+        _unlock(rewardId, assets);
+        vaults[rewardId].totalSupply -= shares;
+        vaults[rewardId].rewardToken._mint(msg.sender, shares);
     }
 
     /// @notice Rewards math TO CHANGE!
     function previewDeposit(
-        HeliosERC1155 asset,
         uint256 rewardId,
         uint256 assets
     ) public view returns (uint256) {
-        uint256 supply = vaults[asset][rewardId].totalSupply;
+        uint256 supply = vaults[rewardId].totalSupply;
         return
             supply == 0
                 ? assets
-                : assets.mulDivDown(supply, totalAssets(asset, rewardId));
+                : assets.mulDivDown(supply, totalAssets(rewardId));
     }
 
     function previewWithdraw(
-        HeliosERC1155 asset,
         uint256 rewardId,
         uint256 assets
     ) public view returns (uint256) {
-        uint256 supply = vaults[asset][rewardId].totalSupply;
+        uint256 supply = vaults[rewardId].totalSupply;
         return
             supply == 0
                 ? assets
-                : assets.mulDivUp(supply, totalAssets(asset, rewardId));
+                : assets.mulDivUp(supply, totalAssets(rewardId));
     }
 
-    function totalAssets(HeliosERC1155 asset, uint256 rewardId)
+    function totalAssets(uint256 rewardId)
         public
         view
         returns (uint256)
     {
-        return vaults[asset][rewardId].totalSupply;
+        return vaults[rewardId].rewardToken.totalSupply();
     }
 
     /// -----------------------------------------------------------------------
